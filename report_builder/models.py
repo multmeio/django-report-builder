@@ -6,6 +6,7 @@ from django.utils.safestring import mark_safe
 from django.utils import timezone
 from django.db import models
 from django.db.models import Avg, Min, Max, Count, Sum
+from hstore_flattenfields.aggregates import *
 from django.db.models.signals import post_save
 from report_builder.unique_slugify import unique_slugify
 from dateutil import parser
@@ -44,18 +45,33 @@ class Report(models.Model):
 
 
     def add_aggregates(self, queryset):
+        dynamic_field_names = self.root_model.model_class()._meta.get_all_dynamic_field_names()
         for display_field in self.displayfield_set.filter(aggregate__isnull=False):
+            aggregate_avg = Avg
+            aggregate_min = Min
+            aggregate_max = Max
+            aggregate_count = Count
+            aggregate_sum = Sum
+            
+            if display_field.field in dynamic_field_names:
+            # NOTE: Condition used to help in the compatibility with the HstoreFlattenFields
+                aggregate_avg = HstoreAvg
+                aggregate_min = HstoreMin
+                aggregate_max = HstoreMax
+                aggregate_count = HstoreCount
+                aggregate_sum = HstoreSum
+            
             if display_field.aggregate == "Avg":
-                queryset = queryset.annotate(Avg(display_field.path + display_field.field))
+                aggregated = aggregate_avg(display_field.path + display_field.field)
             elif display_field.aggregate == "Max":
-                queryset = queryset.annotate(Max(display_field.path + display_field.field))
+                aggregated = aggregate_max(display_field.path + display_field.field)
             elif display_field.aggregate == "Min":
-                queryset = queryset.annotate(Min(display_field.path + display_field.field))
+                aggregated = aggregate_min(display_field.path + display_field.field)
             elif display_field.aggregate == "Count":
-                queryset = queryset.annotate(Count(display_field.path + display_field.field))
+                aggregated = aggregate_count(display_field.path + display_field.field)
             elif display_field.aggregate == "Sum":
-                queryset = queryset.annotate(Sum(display_field.path + display_field.field))
-        return queryset
+                aggregated = aggregate_sum(display_field.path + display_field.field)
+        return queryset.annotate(aggregated)
 
     
     def get_query(self):
